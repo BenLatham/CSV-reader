@@ -277,13 +277,21 @@ class Labels:
                  headings="yyyy, mm, tmax, tmin, af, rain, sun",
                  units="degC, degC, days, mm, hours",
                  ):
+        """
+
+        :param heading_row: expects an integer or None, denoting the row containing headings
+        :param unit_row: expects an integer or None, denoting the row containing units
+        :param data_row: expects an integer, denoting the first row containing data
+        :param headings: a string containing the titles of each column separated by a comma and a space i.e. ", "
+        :param units: a string containing the list of units for each column separated by a comma and a space
+        """
         self.heading_row = heading_row
         self.unit_row = unit_row
         self.data_row = data_row
         self.headings = headings.split(", ")
         self.columns = len(self.headings)
         self.units = units.split(", ")
-        self.labels = len(units)
+        self.labels = len(self.units)
 
 
 class FileSettings:
