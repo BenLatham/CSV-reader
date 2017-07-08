@@ -50,37 +50,37 @@ def choose_file_in_dir(directory):
     return os.path.join(directory, filename)
 
 
-def open_file(filename):
-    """
-    opens a file, reads it and closes it
-    returns an object of type file
-    """
-    try:
-        data_file = open(filename, "r")
-    except OSError:
-        raise CsvReadError("FileUnopenable")
-    text = data_file.read()
-    data_file.close()
-    return text
-
-
-def read_file(text, filetype):
+def read_file(filepath, filetype):
     """
     takes a csv file 'text' and a description of the file of type FileSettings
     checks the text is compatible with the described file type
     returns a 2d list representing the data stored in the csv file,
     (a list of the rows in the csv table)
     """
-    delimiters = filetype.delimiters
-    labels = filetype.labels
-    text = remove_markers(text)
-    data, rows = split_strip(text, delimiters)
-    check_headings(data, labels)
-    data, null_count, error_count = check_type(data, filetype, rows)
-    data = trim(data, labels)
-    report(null_count, error_count, labels)
-    return data
+    text = open_file(filepath)
+    return read_contents(text, filetype)
 
+def open_file(filepath):
+    """
+    opens a file, reads it and closes it
+    returns an object of type file
+    """
+    try:
+        data_file = open(filepath, "r")
+    except OSError:
+        raise CsvReadError("FileUnopenable")
+    text = data_file.read()
+    data_file.close()
+    return text
+
+def read_contents(text, filetype):
+    text = remove_markers(text)
+    data, rows = split_strip(text, filetype.delimiters)
+    check_headings(data, filetype.labels)
+    data, null_count, error_count = check_type(data, filetype, rows)
+    data = trim(data, filetype.labels)
+    # report(null_count, error_count, labels)
+    return data
 
 def remove_markers(text):
     """ strip out asterics and hashes from the file"""
@@ -125,29 +125,26 @@ def check_type(data, filetype, rows):
     and a count of any unreadable values in the csv file.
     """
 
-    datatypes = filetype.data_types
-    delimiters = filetype.delimiters
-    labels = filetype.labels
+    types = filetype.data_types.types
+    empty_cell = filetype.delimiters.empty_cell
+    data_row = filetype.labels.data_row
+    cols = filetype.labels.columns
 
-    null_count = [0] * labels.columns
-    error_count = [0] * labels.columns
 
-    for i in range(labels.data_row, rows):
-        for j in range(labels.columns):
-            if datatypes.types[j].match(data[i][j]) is None:
-                if delimiters.empty_cell.match(data[i][j]):
+    null_count = [0] * cols
+    error_count = [0] * cols
+
+
+    for i in range(data_row, rows):
+        for j in range(cols):
+            if not types[j].check(data[i][j]):
+                if empty_cell.match(data[i][j]):
                     null_count[j] += 1
                 else:
                     error_count[j] += 1
                 data[i][j] = None
             else:
-                if datatypes.types[j] == datatypes.float_type:
-                    data[i][j] = float(data[i][j])
-                else:
-                    try:
-                        data[i][j] = int(data[i][j])
-                    except TypeError:
-                        print(data[i[j]])
+                 data[i][j] = types[j].convert(data[i][j])
     return data, null_count, error_count
 
 
@@ -226,7 +223,7 @@ class TableDelimiters:
     def __init__(self,
                  cell_border=",",
                  row_border="\n",
-                 empty_cell="---",
+                 empty_cell="",
                  ):
         self.cell_border = re.compile(cell_border)
         self.row_border = re.compile(row_border)
@@ -235,34 +232,82 @@ class TableDelimiters:
 
 class DataTypes:
     """
-    The type of data in each row, as a comma separated string. Accepts 3 types in this list:
-    dt standing for date_type;it standing for integer_type; ft standing for float type.
+    The type of data in each row.
+    contains one field "types" which is a list of functions defining the types
+    for each row of the data.
 
-    Each type is defined by regular expressions; by default "dt" is precisely 4 numeric digits,
-    "it" is 0 or more numeric digits, and "ft" is an optional "-" sign followed by 0 or more
-    numeric digits followed optionally by a decimal point and more numeric digits.
+    Each function takes a string as an argument and checks if the string is
+    the apropriate data type for the column, returning true or false.
     """
     def __init__(self,
-                 types="dt, it, ft, ft, it, ft, ft",
-                 date_type=r"[0-9]{4}$",
-                 integer_type=r"[0-9]*$",
-                 float_type=r"-?[0-9]*\.?[0-9]*$",
+                 types=[1,2,3,3,2,3,3], #"dt, it, ft, ft, it, ft, ft"
+                 type_definitions =[]
                  ):
-        self.date_type = re.compile(date_type)
-        self.short_type = re.compile(integer_type)
-        self.float_type = re.compile(float_type)
-        types = types.split(", ")
-        self.types = []
-        for x in types:
-            if x == "dt":
-                self.types.append(self.date_type)
-            elif x == "it":
-                self.types.append(self.short_type)
-            elif x == "ft":
-                self.types.append(self.float_type)
-            else:
-                self.types.append([])
+        """
 
+        :param types: a list of integers, each coressponding to a column in the data.
+        Each integer is an index refering to a type defining function.
+        The default types are:
+        0 - universal type: any string gives a match
+        1 - date type: precisely 4 numeric digits
+        2 - integer type: 0 or more numeric digits
+        3 - float type: an optional "-" sign followed by 0 or more numeric digits
+         followed optionally by a decimal point and more numeric digits
+
+        :param type_definitions: a list containing any additional type definitions,
+         which is added to the list of existing definitions, extending it.
+         Type definitions should contain a check(string) method which takes a string and
+         returns a boolean depending on whether the string matches the type definition,
+         and a convert(string) method which converts the string to the appropriate data
+         type for the given field type
+        """
+        type_definitions = self.default_types()+type_definitions
+        self.types = []
+
+        for x in types:
+            self.types.append(type_definitions[x])
+
+
+    def default_types(self):
+        universal_type = Type()
+        date_type = Type(r"[0-9]{4}$", int)
+        integer_type = Type(r"-?[0-9]+$", int)
+        float_type = Type(r"-?[0-9]+\.?[0-9]*$", float)
+        return [universal_type, date_type, integer_type, float_type]
+
+
+class Type:
+    """
+    Define the type of a field - using a regex to describe the expected format of the string read from the csv,
+    and the type to which it should be converted
+    """
+
+    def __init__(self, regex = None, output_type = str):
+        self.regex = regex
+        self.output_type = output_type
+
+    def check(self, string):
+        """
+        :param string: the string to be checked
+        :return: boolean - true if the string matches the given regex
+        """
+        if self.regex is not None:
+            return bool(re.compile(self.regex).match(string))
+        return True
+
+
+    def convert(self, string):
+        """
+        checks the given string matches the type for the field and casts it to the appropriate type
+        :param string: the string to be converted
+        :return: the value of the string cast into the appropriate type
+        """
+        if self.check(string):
+            try:
+                return self.output_type(string)
+            except ValueError:
+                raise ValueError('cannot convert "'+string+'" to type '+str(self.output_type))
+        raise ValueError("Date type expects exactly 4 numeric digits")
 
 class Labels:
     """
