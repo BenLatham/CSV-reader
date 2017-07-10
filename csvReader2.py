@@ -19,9 +19,9 @@ class MetaData:
                  row_border="\n",
                  empty_cell="",
                  markers="",  # "*#"
-                 heading_row=1,
+                 heading_row=0,
                  unit_row=None,
-                 data_row=0
+                 data_row=1
                  ):
         self.cell_border = re.compile(cell_border)
         self.row_border = re.compile(row_border)
@@ -76,13 +76,14 @@ class Field:
         self.name = name
         self.type_name = type_name
         self.units = units
-        def activate_type(types):
-            """
-            find the named type in a dictionary of types, and add it to self
-            :param types: a dictionary of avaliable types
-            """
-            try: self.type = types.get(self.type_name)
-            except KeyError: raise ValueError(self.type_name+" is not a valid type")
+
+    def activate_type(self, types):
+        """
+        find the named type in a dictionary of types, and add it to self
+        :param types: a dictionary of avaliable types
+        """
+        try: self.type = types.get(self.type_name)
+        except KeyError: raise ValueError(self.type_name+" is not a valid type")
 
 
 class CsvFile:
@@ -105,9 +106,9 @@ class CsvFile:
                  ):
         self.metadata = metadata
         for field in fields:
-            field.activate_type()
+            field.activate_type(metadata.types)
         self.fields = fields
-        self.num_fields =self.fields.length()
+        self.num_fields =len(fields)
         self.filepath = filepath
         self.null_count = [0]*self.num_fields
         self.error_count = [0]*self.num_fields
@@ -157,7 +158,7 @@ class CsvFile:
         returns a 2d list representing the data stored in the csv file,
         (a list of the rows in the csv table)
         """
-        text = self._open_file(self.filepath)
+        text = self._open_file()
         self.read_contents(text)
 
     def read_contents(self, text):
@@ -198,6 +199,8 @@ class CsvFile:
         for i in range(rows):
             data[i] = data[i].strip()
             data[i] = self.metadata.cell_border.split(data[i])
+            for j in range(len(data[i])):
+                data[i][j] = data[i][j].strip()
         return data, rows
 
     def _check_headings(self, data):
@@ -206,14 +209,14 @@ class CsvFile:
         checks the headings and units of this data match the description given in the labels class
         """
         heading_row = self.metadata.heading_row
-        unit_row=data[self.metadata.unit_row]
+        unit_row=self.metadata.unit_row
         if heading_row is not None:
             headings= data[heading_row]
-            if not [field.name for field in self.fields] == headings[:self.fields.length]:
+            if not [field.name for field in self.fields] == headings[:self.num_fields]:
                  raise CsvReadError("WrongDataHeadings", headings)
         if unit_row is not None:
             units= data[heading_row]
-            if not [field.units for field in self.fields] == units[:self.fields.length]:
+            if not [field.units for field in self.fields] == units[:self.num_fields]:
                 raise CsvReadError("WrongDataUnits", units)
 
     def _check_type(self, data, rows):
