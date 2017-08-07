@@ -3,6 +3,16 @@
 import sys
 import os
 import re
+from django.core.exceptions import ValidationError
+
+def fields(fields_list):
+    return [Field(*field) for field in fields_list]
+
+def read(directory, file, fields):
+    path = os.path.join(directory, file)
+    csv = CsvFile(fields=fields, filepath=path)
+    csv.read_file()
+    return csv.data
 
 
 class CsvReadError(Exception):
@@ -35,6 +45,7 @@ class MetaData:
             "date":Type(r"[0-9]{4}$", int),
             "integer":Type(r"-?[0-9]+$", int),
             "float":Type(r"-?[0-9]+\.?[0-9]*$", float),
+            "full_date":Type(r"[0-9]{2}-[0-9]{2}-[0-9]{4}")
         }
 
 
@@ -68,7 +79,8 @@ class Type:
                 return self.output_type(string)
             except ValueError:
                 raise ValueError('cannot convert "'+string+'" to type '+str(self.output_type))
-        raise ValueError("Date type expects exactly 4 numeric digits")
+        raise ValueError('String: "'+string+'" does not match the regex:"'+self.regex+'"')
+
 
 
 class Field:
@@ -212,8 +224,9 @@ class CsvFile:
         unit_row=self.metadata.unit_row
         if heading_row is not None:
             headings= data[heading_row]
-            if not [field.name for field in self.fields] == headings[:self.num_fields]:
-                 raise CsvReadError("WrongDataHeadings", headings)
+            fields =[field.name for field in self.fields]
+            if not fields == headings[:self.num_fields]:
+                raise CsvReadError("WrongDataHeadings", {"headings":headings,"fields": fields})
         if unit_row is not None:
             units= data[heading_row]
             if not [field.units for field in self.fields] == units[:self.num_fields]:
